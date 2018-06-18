@@ -2,8 +2,9 @@ version: "3"
 
 services:
   http_proxy:
-    image: pajk/http-proxy
+    image: pajk/go-http-proxy
     environment:
-      - 'PATH_MAPPING={}'
+      - 'PORT=8000'
+      - 'PATH_MAPPING={"google": "https://www.google.com"}'
     ports:
-      - 8080:8080
+      - 9090:8000

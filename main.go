@@ -2,18 +2,32 @@
 package main
 
 import (
+	"io"
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"fmt"
 	"strings"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
+
+// PrintHTTP prints debug request info
+func PrintHTTP(req *http.Request, res *http.Response) {
+	fmt.Printf("%v %v\n", req.Method, req.RequestURI)
+	for k, v := range req.Header {
+		fmt.Println(k, ":", v)
+	}
+	fmt.Println("==============================")
+	fmt.Printf("HTTP/1.1 %v\n", res.Status)
+	for k, v := range res.Header {
+		fmt.Println(k, ":", v)
+	}
+	fmt.Println(res.Body)
+	fmt.Println("==============================")
+}
 
 // GetPathMapping returns a key/value map of the PATH_MAPPING env var.
 func GetPathMapping() map[string]string {
@@ -53,16 +67,27 @@ func IsValidURL(rawURL string) bool {
 	return true
 }
 
-// Index handler process all the incoming HTTP requests.
-func Index(c *gin.Context) {
+// Proxy struct
+type Proxy struct {
+}
+
+// NewProxy factory
+func NewProxy() *Proxy { return &Proxy{} }
+
+// Handler handler process all the incoming HTTP requests.
+func (p *Proxy) ServeHTTP(wr http.ResponseWriter, r *http.Request) {
+	var resp *http.Response
+	var err error
+	var req *http.Request
+	client := &http.Client{}
+
 	// Forward to Status page when homepage is requested
-	if c.Request.URL.Path == "/" {
-		Status(c)
+	if r.URL.Path == "/" {
 		return
 	}
 
 	// Get the requested URL path and trim the / prefix
-	requestedURL := strings.TrimPrefix(c.Request.URL.String(), "/")
+	requestedURL := strings.TrimPrefix(r.URL.String(), "/")
 
 	urlPathPrefix := GetURLPathPrefix(requestedURL)
 	pathMapping := GetPathMapping()
@@ -72,7 +97,7 @@ func Index(c *gin.Context) {
 
 		// Forward to 404 page when URL path prefix matches the requested URL
 		if urlPathPrefix == requestedURL {
-			Error(c, http.StatusNotFound)
+			http.Error(wr, err.Error(), http.StatusNotFound)
 			return
 		}
 
@@ -84,56 +109,40 @@ func Index(c *gin.Context) {
 
 	// Ensure we forward valid URLs
 	if !IsValidURL(requestedURL) {
-		Error(c, http.StatusNotFound)
+		http.Error(wr, "Invalid URL", http.StatusNotFound)
 		return
 	}
 
-	resp, err := http.Get(requestedURL)
+	log.Printf("%v %v", r.Method, requestedURL)
+	req, err = http.NewRequest(r.Method, requestedURL, r.Body)
+	for name, value := range r.Header {
+		req.Header.Set(name, value[0])
+	}
+	resp, err = client.Do(req)
+	defer r.Body.Close()
 
 	if err != nil {
-		Error(c, http.StatusNotFound)
+		http.Error(wr, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	for k, v := range resp.Header {
+		wr.Header().Set(k, v[0])
+	}
+	wr.WriteHeader(resp.StatusCode)
+	io.Copy(wr, resp.Body)
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		Error(c, http.StatusNotFound, err)
-		return
-	}
-
-	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.String(resp.StatusCode, string(body))
-}
-
-// Status returns the current time in a JSON object
-func Status(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"time": time.Now().String(),
-	})
-}
-
-// Error wrapper centralizes the error responses logic.
-func Error(c *gin.Context, statusCode int, err ...error) {
-	c.JSON(statusCode, gin.H{
-		"code":    statusCode,
-		"message": http.StatusText(statusCode),
-		"url":     c.Request.URL.String(),
-	})
-
-	if err != nil {
-		log.Print(err)
-	}
+	PrintHTTP(r, resp)
 }
 
 func main() {
 	godotenv.Load()
 
-	gin.SetMode(gin.ReleaseMode)
-
-	router := gin.Default()
-	router.GET("/*path", Index)
-	router.Run()
+	proxy := NewProxy()
+	fmt.Println("==============================")
+	err := http.ListenAndServe(fmt.Sprintf(":%s", os.Getenv("PORT")), proxy)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err.Error())
+	}
 }
