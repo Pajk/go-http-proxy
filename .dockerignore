@@ -3,7 +3,3 @@
 .env.tpl
 .git
 .gitignore
-*.go
-Dockerfile
-Makefile
-go-http-proxy*
