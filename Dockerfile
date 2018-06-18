@@ -1,12 +1,13 @@
 FROM golang:alpine as builder
 
 RUN apk add --no-cache git && \
-    go get -d github.com/jkernech/go-http-proxy && \
-    CGO_ENABLED=0 GOOS=linux go build -a --ldflags '-extldflags "-static"' github.com/jkernech/go-http-proxy
+    apk add -U --no-cache ca-certificates && \
+    go get -d github.com/pajk/go-http-proxy && \
+    CGO_ENABLED=0 GOOS=linux go build -a --ldflags '-extldflags "-static"' github.com/pajk/go-http-proxy
 
-FROM alpine
+FROM scratch
 
-RUN apk add --no-cache ca-certificates openssl
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /go/go-http-proxy /bin/http_proxy
 
 CMD ["/bin/http_proxy"]

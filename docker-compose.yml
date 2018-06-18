@@ -2,7 +2,7 @@ version: "3"
 
 services:
   http_proxy:
-    image: jkernech/http-proxy
+    image: pajk/http-proxy
     environment:
       - 'PATH_MAPPING={}'
     ports:
